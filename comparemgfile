@@ -1,0 +1,76 @@
+import os
+import requests
+
+# 从环境变量中获取 GitLab 访问令牌、项目 ID 和 MR ID
+gitlab_token = '' #os.getenv('GITLAB_TOKEN')
+gitlab_project_id =  #os.getenv('GITLAB_PROJECT_ID')
+mr_id =  #int(os.getenv('GITLAB_MR_ID'))
+
+# 设置 GitLab API 的基础 URL
+gitlab_api_url = 'https://gitlab.com/api/v4'
+
+def get_merge_request_data(project_id, mr_id, token):
+    """获取 Merge Request 的详细信息"""
+    headers = {'PRIVATE-TOKEN': token}
+    mr_url = f'{gitlab_api_url}/projects/{project_id}/merge_requests/{mr_id}'
+    response = requests.get(mr_url, headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"Failed to get merge request data: {response.status_code}")
+        return None
+
+def get_commits(project_id, mr_id, token):
+    """获取 Merge Request 的提交列表"""
+    headers = {'PRIVATE-TOKEN': token}
+    commits_url = f'{gitlab_api_url}/projects/{project_id}/merge_requests/{mr_id}/commits'
+    response = requests.get(commits_url, headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"Failed to get commits: {response.status_code}")
+        return []
+
+def get_file_diff(project_id, file_path, base_commit, head_commit, token):
+    """获取文件在两个提交之间的差异"""
+    headers = {'PRIVATE-TOKEN': token}
+    # Construct the URL for the GitLab API to get the diffs between two commits
+    diff_url = f'{gitlab_api_url}/projects/{project_id}/repository/compare?from={base_commit}&to={head_commit}'
+    response = requests.get(diff_url, headers=headers)
+    if response.status_code == 200:
+        diff_data = response.json()
+        # Filter the diffs to find the one for the specified file
+        file_diffs = [diff for diff in diff_data.get('diffs', []) if diff['new_path'] == file_path or diff['old_path'] == file_path]
+        if file_diffs:
+            return file_diffs[0]  # Return the first match
+        else:
+            print(f"No diff found for file {file_path}.")
+            return None
+    else:
+        print(f"Failed to get diff for file {file_path}: {response.status_code}")
+        return None
+
+def main():
+    if not gitlab_token or not gitlab_project_id or mr_id == 0:
+        print("Please set GITLAB_TOKEN, GITLAB_PROJECT_ID, and GITLAB_MR_ID environment variables.")
+        return
+
+    mr_data = get_merge_request_data(gitlab_project_id, mr_id, gitlab_token)
+    if mr_data:
+        commits = get_commits(gitlab_project_id, mr_id, gitlab_token)
+        if commits:
+            for commit in commits:
+                file_path = 'file.txt'  # 指定要比较的文件路径
+                if commit['parent_ids']:
+                    base_commit = commit['parent_ids'][0]
+                    head_commit = commit['id']
+                    diff_data = get_file_diff(gitlab_project_id, file_path, base_commit, head_commit, gitlab_token)
+                    if diff_data and diff_data.get('diff'):
+                        print(f"Changes in file {file_path} in commit {commit['id']}:")
+                        print(diff_data['diff'])
+                    else:
+                        print(f"No changes in file {file_path} in commit {commit['id']}.")
+                else:
+                    print(f"Commit {commit['id']} is the initial commit or an orphan commit, skipping diff for file {file_path}.")
+if __name__ == "__main__":
+    main()
